@@ -18,13 +18,13 @@ int SP;
 char PSW[2];
 
 // Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
-void loadInstructions(char *buffer){
+static void loadInstructions(char *buffer){
 	int i = 0;
-	signed char final = -1;
+	signed char final = 0;
 	
 	// Salva as instrucoes a serem realizadas na memoria.
 	while(buffer[i] != final){
-		MEM[i] = (int)(buffer[i]);		   
+		MEM[i] = (int)(buffer[i]) - 65;		   
 		i++;	
 	}
 	
@@ -32,7 +32,7 @@ void loadInstructions(char *buffer){
 }
 
 // Imprime o status do sistema.
-void printStatus(int opcode){
+static void printStatus(int opcode){
 	int i;
 
 	printk(KERN_INFO "PC(%d) SP(%d) PSW(%d,%d) instrucao(%d)\nRegistradores: ", 
@@ -48,7 +48,7 @@ void printStatus(int opcode){
 }
 
 // Carrega registrador.
-void LOAD(void){
+static void LOAD(void){
 	int R, M;
 	PC++;
 	R = MEM[PC];
@@ -60,7 +60,7 @@ void LOAD(void){
 }
 
 // Armazena registrador.
-void STORE(void){
+static void STORE(void){
 	int R, M;
 	PC++;
 	R = MEM[PC];
@@ -72,18 +72,18 @@ void STORE(void){
 }
 
 // Le valor para registrador.
-/*
-void READ(void){
+static void vm_READ(void){
 	int R;
 	PC++;
 	R = MEM[PC];
 	PC++;
 	//scanf("%d", &GPR[R]);
+    GPR[R] = 2;
 	return;
 }
 
 // Escreve conteudo do registrador.
-void WRITE(void){
+static void vm_WRITE(void){
 	int R;
 	PC++;
 	R = MEM[PC];
@@ -91,10 +91,9 @@ void WRITE(void){
 	printk(KERN_INFO "%d\n", GPR[R]);
 	return;
 }
-*/
 
 // Copia registrador.
-void COPY(void){
+static void COPY(void){
 	int R1, R2;
 	PC++;
 	R1 = MEM[PC];
@@ -118,7 +117,7 @@ void COPY(void){
 }
 
 // Inverte o sinal do registrador.
-void NEG(void){
+static void NEG(void){
 	int R;
 	PC++;
 	R = MEM[PC];
@@ -140,7 +139,7 @@ void NEG(void){
 }
 
 // Subtrai dois registradores.
-void SUB(void){
+static void SUB(void){
 	int R1, R2;
 	PC++;
 	R1 = MEM[PC];
@@ -164,7 +163,7 @@ void SUB(void){
 }
 
 // Soma dois registradores.
-void ADD(void){
+static void ADD(void){
 	int R1, R2;
 	PC++;
 	R1 = MEM[PC];
@@ -188,7 +187,7 @@ void ADD(void){
 }
 
 // AND(bit a bit) de dois registradores.
-void AND(void){
+static void AND(void){
 	int R1, R2;
 	PC++;
 	R1 = MEM[PC];
@@ -212,7 +211,7 @@ void AND(void){
 }
 
 // OR(bit a bit) de dois registradores.
-void OR(void){
+static void OR(void){
 	int R1, R2;
 	PC++;
 	R1 = MEM[PC];
@@ -236,7 +235,7 @@ void OR(void){
 }
 
 // XOR(bit a bit) de dois registradores.
-void XOR(void){
+static void XOR(void){
 	int R1, R2;
 	PC++;
 	R1 = MEM[PC];
@@ -260,7 +259,7 @@ void XOR(void){
 }
 
 // NOT(bit a bit) de dois registradores.
-void NOT(void){
+static void NOT(void){
 	int R;
 	PC++;
 	R = MEM[PC];
@@ -282,7 +281,7 @@ void NOT(void){
 }
 
 // Desvio incondicional.
-void JMP(void){
+static void JMP(void){
 	int M;
 	PC++;
 	M = MEM[PC];
@@ -292,7 +291,7 @@ void JMP(void){
 }
 
 // Desvia se zero.
-void JZ(void){
+static void JZ(void){
 	int M;
 	PC++;
 	M = MEM[PC];
@@ -303,7 +302,7 @@ void JZ(void){
 }
 
 // Desvia se nao zero.
-void JNZ(void){
+static void JNZ(void){
 	int M;
 	PC++;
 	M = MEM[PC];
@@ -314,7 +313,7 @@ void JNZ(void){
 }
 
 // Desvia se negativo.
-void JN(void){
+static void JN(void){
 	int M;
 	PC++;
 	M = MEM[PC];
@@ -325,7 +324,7 @@ void JN(void){
 }
 
 // Desvia se nao negativo.
-void JNN(void){
+static void JNN(void){
 	int M;
 	PC++;
 	M = MEM[PC];
@@ -336,7 +335,7 @@ void JNN(void){
 }
 
 // Empilha valor do registrador.
-void PUSH(void){
+static void PUSH(void){
 	int R;
 	PC++;
 	R = MEM[PC];
@@ -347,7 +346,7 @@ void PUSH(void){
 }
 
 // Desempilha valor do registrador.
-void POP(void){
+static void POP(void){
 	int R;
 	PC++;
 	R = MEM[PC];
@@ -358,7 +357,7 @@ void POP(void){
 }
 
 // Chamada de subrotina.
-void CALL(void){
+static void CALL(void){
 	int M;
 	PC++;
 	M = MEM[PC];
@@ -370,7 +369,7 @@ void CALL(void){
 }
 
 // Retorno de subrotina.
-void RET(void){
+static void RET(void){
 	PC = MEM[SP];
 	SP += 1;
 	return;
@@ -385,6 +384,7 @@ static int exec_machine(char *program){
 	PC = 0;				//atoi(argv[1]);
 	SP = MEM_SIZE - 1;	//atoi(argv[2]);
 	MP = 0;				//atoi(argv[3]);
+	simples = 1;
 
 	// Carregando o programa para a memoria.
 	loadInstructions(program);
@@ -401,9 +401,9 @@ static int exec_machine(char *program){
 					break;
 			case 2:	STORE();
 					break;
-			case 3:	//READ();
+			case 3:	vm_READ();
 					break;
-			case 4:	//WRITE();
+			case 4:	vm_WRITE();
 					break;
 			case 5:	COPY();				
 					break;
@@ -462,14 +462,13 @@ static void hello_nl_recv_msg(struct sk_buff *skb) {
 
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
-	msg_size=strlen(msg);
-
 	nlh=(struct nlmsghdr*)skb->data;
 	printk(KERN_INFO "Netlink received msg payload:%s\n",(char*)nlmsg_data(nlh));
 	pid = nlh->nlmsg_pid; /*pid of sending process */
 
 	exec_machine((char*)nlmsg_data(nlh));
 
+	msg_size=strlen(msg);
 	skb_out = nlmsg_new(msg_size,0);
 
 	if(!skb_out)

@@ -40,10 +40,10 @@ int main(int argc, char *argv[]){
 	while(1){
 		if(EOF == fscanf(fp, "%d\n", &d))
 			break;
-		buffer[i] = d;
+		buffer[i] = d + 65;
 		i++;
 	}
-	buffer[i] = -1;
+	buffer[i] = 0;
 	
 
 	sock_fd=socket(PF_NETLINK, SOCK_RAW, NETLINK_USER);
