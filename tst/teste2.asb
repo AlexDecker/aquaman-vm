@@ -1,0 +1,16 @@
+READ 
+2
+STORE 
+2 
+20
+LOAD 
+5 
+17
+NEG 
+5
+ADD 
+5 
+2
+WRITE 
+5
+HALT
