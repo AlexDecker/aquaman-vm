@@ -1,14 +1,16 @@
 #include <linux/module.h>
-#include <net/sock.h>
 #include <linux/netlink.h>
 #include <linux/skbuff.h>
-//#include "vmachine.h"
+#include <linux/kernel.h>
+#include <net/sock.h>
 
 #define NETLINK_USER 31
 
 struct sock *nl_sk = NULL;
 
+#define MAX_SIZE 10
 #define MEM_SIZE 1000
+#define MSG_SIZE 500
 
 //Variaveis globais
 int MEM[MEM_SIZE];
@@ -83,13 +85,32 @@ static void vm_READ(void){
 }
 
 // Escreve conteudo do registrador.
-static void vm_WRITE(void){
+static char* vm_WRITE(void){
 	int R;
+	char buffer[MAX_SIZE];
+	int dig[MAX_SIZE];
+	int i, j, value;
+
 	PC++;
 	R = MEM[PC];
 	PC++;
+	value = GPR[R];
+
+	i = 0;
+	while(value != 0){
+		dig[i] = value - (value / 10) * 10;
+		value /= 10;
+		i++;
+	}
+
+	i--;
+	for(j = 0; j <= i; j++){
+		buffer[j] = dig[i-j] + 48;
+	}
+	buffer[j] = '\0';
+
 	printk(KERN_INFO "%d\n", GPR[R]);
-	return;
+	return buffer;
 }
 
 // Copia registrador.
@@ -375,9 +396,11 @@ static void RET(void){
 	return;
 }
 
-static int exec_machine(char *program){
+static char* exec_machine(char *program){
 	
 	int simples, MP, end;
+	char mesg[MSG_SIZE];
+	strncpy(mesg,"RESULT:\n",8);
 	
 	// Rotina de inicializacao:
 	end = 0;
@@ -391,6 +414,8 @@ static int exec_machine(char *program){
 
 	// Executa o programa até receber uma inst. de HALT.
 	while(!end){
+		if(PC >= MEM_SIZE)
+			return "ERROR: INVALID MEMORY POSITION.";
 		// Caso o modo definido seja o 'verbose', imprimir status.
 		if(!simples){
 			printStatus(MEM[PC]);
@@ -403,7 +428,7 @@ static int exec_machine(char *program){
 					break;
 			case 3:	vm_READ();
 					break;
-			case 4:	vm_WRITE();
+			case 4:	strcat(mesg, vm_WRITE());
 					break;
 			case 5:	COPY();				
 					break;
@@ -442,13 +467,14 @@ static int exec_machine(char *program){
 			case 22:end = 1;
 					break;
 			default:
-				printk(KERN_INFO "ERROR: (%d) IS AN INVALID OPCODE.\n", MEM[PC]);
-				end = 1;
+				printk(KERN_ERR "ERROR: (%d) IS AN INVALID OPCODE.\n", MEM[PC]);
+				return "ERROR: INVALID OPCODE.\n";
+				//end = 1;
 				break;				
 		}
 	}
 	
-	return 0;
+	return mesg;
 }
 
 static void hello_nl_recv_msg(struct sk_buff *skb) {
@@ -457,7 +483,7 @@ static void hello_nl_recv_msg(struct sk_buff *skb) {
 	int pid;
 	struct sk_buff *skb_out;
 	int msg_size;
-	char *msg="Hello from kernel";
+	char *msg;//="Hello from kernel";
 	int res;
 
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
@@ -466,7 +492,7 @@ static void hello_nl_recv_msg(struct sk_buff *skb) {
 	printk(KERN_INFO "Netlink received msg payload:%s\n",(char*)nlmsg_data(nlh));
 	pid = nlh->nlmsg_pid; /*pid of sending process */
 
-	exec_machine((char*)nlmsg_data(nlh));
+	msg = exec_machine((char*)nlmsg_data(nlh));
 
 	msg_size=strlen(msg);
 	skb_out = nlmsg_new(msg_size,0);
