@@ -107,9 +107,12 @@ static char* vm_WRITE(void){
 	for(j = 0; j <= i; j++){
 		buffer[j] = dig[i-j] + 48;
 	}
-	buffer[j] = '\0';
+	
+	for(j; j < MAX_SIZE; j++)
+		buffer[j] = '\0';
 
-	printk(KERN_INFO "%d\n", GPR[R]);
+	printk(KERN_INFO "REG %d: %d\n", R, GPR[R]);
+
 	return buffer;
 }
 
@@ -400,7 +403,6 @@ static char* exec_machine(char *program){
 	
 	int simples, MP, end;
 	char mesg[MSG_SIZE];
-	strncpy(mesg,"RESULT:\n",8);
 	
 	// Rotina de inicializacao:
 	end = 0;
@@ -426,8 +428,8 @@ static char* exec_machine(char *program){
 					break;
 			case 2:	STORE();
 					break;
-			case 3:	vm_READ();
-					break;
+			/*case 3:	vm_READ();
+					break;*/
 			case 4:	strcat(mesg, vm_WRITE());
 					break;
 			case 5:	COPY();				
@@ -489,7 +491,7 @@ static void hello_nl_recv_msg(struct sk_buff *skb) {
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
 	nlh=(struct nlmsghdr*)skb->data;
-	printk(KERN_INFO "Netlink received msg payload:%s\n",(char*)nlmsg_data(nlh));
+	printk(KERN_INFO "Code received.");
 	pid = nlh->nlmsg_pid; /*pid of sending process */
 
 	msg = exec_machine((char*)nlmsg_data(nlh));
@@ -497,13 +499,11 @@ static void hello_nl_recv_msg(struct sk_buff *skb) {
 	msg_size=strlen(msg);
 	skb_out = nlmsg_new(msg_size,0);
 
-	if(!skb_out)
-	{
-
+	if(!skb_out){
 	    printk(KERN_ERR "Failed to allocate new skb\n");
 	    return;
-
 	} 
+
 	nlh=nlmsg_put(skb_out,0,0,NLMSG_DONE,msg_size,0);  
 	NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
 	strncpy(nlmsg_data(nlh),msg,msg_size);
@@ -540,6 +540,7 @@ static void __exit hello_exit(void) {
 	netlink_kernel_release(nl_sk);
 }
 
-module_init(hello_init); module_exit(hello_exit);
+module_init(hello_init); 
+module_exit(hello_exit);
 
 MODULE_LICENSE("GPL");

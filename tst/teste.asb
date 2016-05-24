@@ -1,5 +1,6 @@
-READ
+LOAD
 0
+10
 LOAD
 1
 6
@@ -9,4 +10,5 @@ ADD
 WRITE
 0
 HALT
-100
+20
+35

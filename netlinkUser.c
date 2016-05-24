@@ -83,7 +83,7 @@ int main(int argc, char *argv[]){
 
 	// Read message from kernel 
 	recvmsg(sock_fd, &msg, 0);
-	printf("Received message payload: %s\n", (char *)NLMSG_DATA(nlh));
+	printf("RESULT RECEIVED: %s\n", (char *)NLMSG_DATA(nlh));
 	close(sock_fd);
 	fclose(fp);
 }
