@@ -6,7 +6,7 @@
 #include <stdio.h>
 
 #define NETLINK_USER 31
-#define MAX_BUFFER 52000
+#define MAX_BUFFER  52000
 #define MAX_PAYLOAD 52000 // maximum payload size
 
 struct sockaddr_nl src_addr, dest_addr;
@@ -17,35 +17,53 @@ int sock_fd;
 
 int main(int argc, char *argv[]){
 	FILE *fp;
-	int i, d;
+	int i, lim, data;
 	char *fName, *buffer;
 	char c;
 
 	// Reading the file.
 	if(argc < 2){
-		printf("MISSING THE FILE.\n");
-		return -1;
+		printf("Missing the code file.\n");
+		return 1;
 	}
 
 	fName = argv[1];
 	fp = fopen(fName, "r");
 	if(fp == NULL){
-		printf("FILE NOT FOUND.\n");
-		return -1;
+		printf("File not found.\n");
+		return 1;
 	}
 
-	// Creating the message.
+	// Creating the content of the message.
 	buffer = (char *)malloc(MAX_BUFFER * sizeof(char));
-	i = 0;
-	while(1){
-		if(EOF == fscanf(fp, "%d\n", &d))
-			break;
-		buffer[i] = d + 65;
-		i++;
+	if(buffer == NULL){
+		printf("Memory allocation error.\n");
+		return 1;
 	}
-	buffer[i] = 0;
-	
 
+	i = 0;
+	lim = 0;
+	while(lim < MAX_BUFFER){
+		if(EOF == fscanf(fp, "%d\n", &data))
+			break;
+
+		// A interger generates 4 characters.
+		lim = i + 4;
+		for(i; i < lim; i++){
+			buffer[i] = 65 + (data & 0x000F);
+			data = data >> 4;
+		}
+	}
+
+	// Verify if the message can be send.
+	if((i + 4) < MAX_BUFFER)
+		buffer[i] = 0;
+	else{
+		printf("Maximum buffer size reached.\n");
+		return 1;
+	}
+
+	// Sending the message.
 	sock_fd=socket(PF_NETLINK, SOCK_RAW, NETLINK_USER);
 	if(sock_fd<0)
 		return -1;

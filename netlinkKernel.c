@@ -21,14 +21,30 @@ char PSW[2];
 
 // Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
 static void loadInstructions(char *buffer){
-	int i = 0;
+	int i, j;
 	signed char final = 0;
 	
-	// Salva as instrucoes a serem realizadas na memoria.
+	j = 0;
+	i = -1;
+	do{
+		i++;
+		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
+		for(j = 3; j > -1; j--){
+			MEM[i] = MEM[i] << 4;
+			MEM[i] += buffer[(i * 4) + j] - 65;
+		}
+
+	} while(MEM[i] > -1);
+	/*
+	printk(KERN_INFO "Memory content:");
+	for(j = 0; j < i; j++)
+		printk(KERN_INFO "%d|", MEM[j]);
+
+	Salva as instrucoes a serem realizadas na memoria.
 	while(buffer[i] != final){
 		MEM[i] = (int)(buffer[i]) - 65;		   
 		i++;	
-	}
+	}*/
 	
 	return;
 }
@@ -399,8 +415,12 @@ static void RET(void){
 	return;
 }
 
+/*
+static void str_cat(char *str1, char *str2){
+
+}*/
+
 static char* exec_machine(char *program){
-	
 	int simples, MP, end;
 	char mesg[MSG_SIZE];
 	
@@ -476,16 +496,18 @@ static char* exec_machine(char *program){
 		}
 	}
 	
+	printk(KERN_INFO "<%s>\n", mesg);
 	return mesg;
 }
 
-static void hello_nl_recv_msg(struct sk_buff *skb) {
+// --------------------------- Main code ------------------------------
+static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 
 	struct nlmsghdr *nlh;
 	int pid;
 	struct sk_buff *skb_out;
 	int msg_size;
-	char *msg;//="Hello from kernel";
+	char *msg = "";
 	int res;
 
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
@@ -519,17 +541,14 @@ static int __init hello_init(void) {
 	printk("Entering: %s\n",__FUNCTION__);
 	//This is for 3.6 kernels and above.
 	struct netlink_kernel_cfg cfg = {
-	    .input = hello_nl_recv_msg,
+	    .input = aquaman_vm_recv_msg,
 	};
 
 	nl_sk = netlink_kernel_create(&init_net, NETLINK_USER, &cfg);
 	//nl_sk = netlink_kernel_create(&init_net, NETLINK_USER, 0, hello_nl_recv_msg,NULL,THIS_MODULE);
-	if(!nl_sk)
-	{
-
+	if(!nl_sk){
 	    printk(KERN_ALERT "Error creating socket.\n");
 	    return -10;
-
 	}
 
 	return 0;
