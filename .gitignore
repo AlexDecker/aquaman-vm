@@ -35,4 +35,6 @@
 *.mod.*
 .netlinkKernel.*
 .tmp_versions/
+*.symvers
+*.order
 user
