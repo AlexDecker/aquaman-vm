@@ -13,7 +13,27 @@ int FILE[FILE_SIZE];
 int GPR[REG_NUM];
 int PC;
 int SP;
+int FP;
 char PSW[2];
+
+static void encode(char *buffer, int n){
+	int i;
+
+	for(i = 0; i < 4; i++){
+		buffer[i] = BASE + (n & 0x000F);
+		n = n >> 4;
+	}
+}
+
+static int decode(char *buffer){
+	int valor, i;
+
+	valor = 0;
+	for(i = 0; i < 4; i++)
+		valor += (buffer[i] - BASE) << (i*4);
+
+	return valor;
+}
 
 // Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
 static void loadInstructions(char *buffer){
@@ -21,18 +41,14 @@ static void loadInstructions(char *buffer){
 	int final;
 	
 	j = 0;
-	i = -1;
+	i = 0;
 	do{
-		i++;
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
-		for(j = 3; j > -1; j--){
-			MEM[i] = MEM[i] << 4;
-			MEM[i] += buffer[(i * 4) + j] - 65;
-		}
+		MEM[i] = decode(&buffer[i*4]);
+		i++;
+		final = buffer[i * 4];
 
-		final = buffer[(i+1) * 4];
-
-	} while(final != CODEF_MARKER);
+	} while(final != CODEF_MARKER && final != 0);
 	/*
 	printk(KERN_INFO "Memory content:");
 	for(j = 0; j < i; j++)
@@ -42,33 +58,28 @@ static void loadInstructions(char *buffer){
 
 // Carrega as informacoes do arquivo para serem utilizadas.
 static int loadFileData(char *buffer){
-	int i, j;
-	int final;
+	int i, j, k;
 	
 	j = 0;
 	i = 0;
-	while(buffer[i] != CODEF_MARKER)
+	while(buffer[i] != CODEF_MARKER && buffer[i] != 0)
 		i++;
 
-	if(buffer[i+1] == '\0')
+	if(buffer[i] == '\0' || buffer[i+1] == '\0')
 		return 0;
 
+	i++;
 	do{
-		i++;
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
-		for(j = 3; j > -1; j--){
-			FILE[i] = FILE[i] << 4;
-			FILE[i] += buffer[(i * 4) + j] - 65;
-		}
-
-		final = buffer[(i+1) * 4];
-
-	} while(final != DATAF_MARKER);
-
+		FILE[j] = decode(&buffer[i]);
+		i += 4;
+		j++;
+	} while(buffer[i] != DATAF_MARKER);
+	/*
 	printk(KERN_INFO "File content:");
-	for(j = 0; j < i; j++)
-		printk(KERN_INFO "%d|", FILE[j]);
-
+	for(i = 0; i < j; i++)
+		printk(KERN_INFO "%d|", FILE[i]);
+	*/
 	return 1;
 }
 
@@ -117,9 +128,10 @@ static void vm_READ(void){
 	int R;
 	PC++;
 	R = MEM[PC];
+	GPR[R] = FILE[FP];
+	FP++;
 	PC++;
 	//scanf("%d", &GPR[R]);
-    GPR[R] = 2;
 	return;
 }
 
@@ -135,20 +147,8 @@ static char* vm_WRITE(void){
 	PC++;
 	value = GPR[R];
 
-	i = 0;
-	while(value != 0){
-		dig[i] = value - (value / 10) * 10;
-		value /= 10;
-		i++;
-	}
-
-	i--;
-	for(j = 0; j <= i; j++){
-		buffer[j] = dig[i-j] + 48;
-	}
-	
-	for(j; j < MAX_SIZE; j++)
-		buffer[j] = '\0';
+	encode(buffer, value);
+	buffer[4] = '\0';
 
 	printk(KERN_INFO "REG %d: %d\n", R, GPR[R]);
 
@@ -448,7 +448,11 @@ static void init_machine(){
 	for(i = 0; i < REG_NUM; i++)
 		GPR[i] = 0;
 
+    for(i = 0; i < FILE_SIZE; i++)
+        FILE[i] = 0;
+
 	PC = 0;
+	FP = 0;
 	SP = MEM_SIZE - 1;
 	PSW[0] = 0; PSW[1] = 0;
 }
@@ -458,18 +462,17 @@ static char* exec_machine(int hasFile){
 	char mesg[MSG_SIZE];
 	
 	// Rotina de inicializacao:
-	//init_machine();
 	end = 0;
 	MP = 0;				//atoi(argv[3]);
 	simples = 1;
 
-	// Carregando o programa para a memoria.
-	//loadInstructions(program);
-
 	// Executa o programa até receber uma inst. de HALT.
 	while(!end){
-		if(PC >= MEM_SIZE)
-			return "ERROR: INVALID MEMORY POSITION.";
+		if(PC >= MEM_SIZE){
+			printk(KERN_ERR "ERROR: INVALID MEMORY POSITION.\n");
+			return NULL;
+		}
+
 		// Caso o modo definido seja o 'verbose', imprimir status.
 		if(!simples){
 			printStatus(MEM[PC]);
@@ -480,8 +483,13 @@ static char* exec_machine(int hasFile){
 					break;
 			case 2:	STORE();
 					break;
-			/*case 3:	vm_READ();
-					break;*/
+			case 3:	if(hasFile)
+						vm_READ();
+					else{
+						printk(KERN_ERR "ERROR: THERE IS NO FILE TO READ.\n");
+						return NULL;
+					}
+					break;
 			case 4:	strcat(mesg, vm_WRITE());
 					break;
 			case 5:	COPY();				
@@ -522,7 +530,7 @@ static char* exec_machine(int hasFile){
 					break;
 			default:
 				printk(KERN_ERR "ERROR: (%d) IS AN INVALID OPCODE.\n", MEM[PC]);
-				return "ERROR: INVALID OPCODE.\n";
+				return NULL;
 				//end = 1;
 				break;				
 		}
@@ -537,22 +545,25 @@ static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 	struct nlmsghdr *nlh;
 	struct sk_buff *skb_out;
 	int pid, msg_size, res, hasFile;
-	char *msg = "";
+	char *received, *msgToSend;
+	char *msg = " ";
 
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
 	nlh=(struct nlmsghdr*)skb->data;
 	printk(KERN_INFO "Code received.");
 	pid = nlh->nlmsg_pid; /*pid of sending process */
-
+	received = (char*)nlmsg_data(nlh);
 
 	// ------------------Executing the code----------------------------
 	init_machine();
-	loadInstructions((char*)nlmsg_data(nlh));
-	hasFile = loadFileData((char*)nlmsg_data(nlh));
-	msg = exec_machine(hasFile);
+	loadInstructions(received);
+	hasFile = loadFileData(received);
+	msgToSend = exec_machine(hasFile);
+	if(msgToSend != NULL)
+		msg = msgToSend;
 
-
+	printk(KERN_INFO ">%s - %d\n", msg, strlen(msg));
 	// --------------------Sending the answer--------------------------
 	msg_size=strlen(msg);
 	skb_out = nlmsg_new(msg_size,0);

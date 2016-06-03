@@ -13,12 +13,14 @@ struct msghdr msg;
 int sock_fd;
 
 void error(char *msg);
+int decode(char *buffer);
 
 int main(int argc, char *argv[]){
 	FILE *fpCode = NULL;
 	FILE *fpData = NULL;
 	int i, lim, data, cap;
 	char *fCode, *fData, *buffer, *aux;
+	char *received;
 	char c;
 
 	// Reading the main code file.
@@ -49,7 +51,7 @@ int main(int argc, char *argv[]){
 		// A interger generates 4 characters.
 		lim = i + 4;
 		for(i; i < lim; i++){
-			buffer[i] = 65 + (data & 0x000F);
+			buffer[i] = BASE + (data & 0x000F);
 			data = data >> 4;
 		}
 
@@ -85,7 +87,7 @@ int main(int argc, char *argv[]){
 			// A interger generates 4 characters.
 			lim = i + 4;
 			for(i; i < lim; i++){
-				buffer[i] = 65 + (data & 0x000F);
+				buffer[i] = BASE + (data & 0x000F);
 				data = data >> 4;
 			}
 
@@ -147,7 +149,19 @@ int main(int argc, char *argv[]){
 
 	// Read message from kernel 
 	recvmsg(sock_fd, &msg, 0);
+	received = (char *)NLMSG_DATA(nlh);
 	printf("RESULT RECEIVED: %s\n", (char *)NLMSG_DATA(nlh));
+
+	if(received[0] == ' ')
+		printf("An error has occurred. Verify using 'dmesg'\n");
+	else{
+		i = 0;
+		while(received[i] != '\0'){
+			printf("%d\n", decode(&received[i]));
+			i += 4;
+		}
+	}
+
 	close(sock_fd);
 
 	if(fpData != NULL) 
@@ -160,4 +174,14 @@ void error(char *msg){
 	printf("Error: ");
 	printf("%s\n", msg);
 	exit(1);
+}
+
+int decode(char *buffer){
+	int valor, i;
+
+	valor = 0;
+	for(i = 0; i < 4; i++)
+		valor += (buffer[i] - BASE) << (i*4);
+
+	return valor;
 }

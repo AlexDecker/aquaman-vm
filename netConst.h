@@ -6,6 +6,7 @@
 
 #define CODEF_MARKER 110
 #define DATAF_MARKER 104
+#define BASE		  65
 
 #define MAX_SIZE    10
 #define MEM_SIZE  1000
