@@ -2,10 +2,12 @@
 #include <sys/socket.h>
 #include <linux/netlink.h>
 #include <stdlib.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 
 #define NETLINK_USER 31
+#define FINAL_MARKER 110
+#define DATAF_MARKER 104
 #define MAX_BUFFER  52000
 #define MAX_PAYLOAD 52000 // maximum payload size
 
@@ -15,36 +17,38 @@ struct iovec iov;
 struct msghdr msg;
 int sock_fd;
 
+void error(char *msg);
+
 int main(int argc, char *argv[]){
-	FILE *fp;
-	int i, lim, data;
-	char *fName, *buffer;
+	FILE *fpCode, *fpData;
+	int i, lim, data, cap;
+	char *fCode, *fData, *buffer, *aux;
 	char c;
 
-	// Reading the file.
+	// Reading the main code file.
 	if(argc < 2){
-		printf("Missing the code file.\n");
+		error("Missing the code file.");
 		return 1;
 	}
 
-	fName = argv[1];
-	fp = fopen(fName, "r");
-	if(fp == NULL){
-		printf("File not found.\n");
-		return 1;
+	fCode = argv[1];
+	fpCode = fopen(fCode, "r");
+	if(fpCode == NULL){
+		sprintf(aux, "File %s not found.", fCode);
+		error(aux);
 	}
 
 	// Creating the content of the message.
-	buffer = (char *)malloc(MAX_BUFFER * sizeof(char));
-	if(buffer == NULL){
-		printf("Memory allocation error.\n");
-		return 1;
-	}
+	cap = MAX_BUFFER;
+	buffer = (char *)malloc(cap * sizeof(char));
+	if(buffer == NULL)
+		error("Memory allocation error.");
+
 
 	i = 0;
 	lim = 0;
-	while(lim < MAX_BUFFER){
-		if(EOF == fscanf(fp, "%d\n", &data))
+	while(1){
+		if(EOF == fscanf(fpCode, "%d\n", &data))
 			break;
 
 		// A interger generates 4 characters.
@@ -53,17 +57,61 @@ int main(int argc, char *argv[]){
 			buffer[i] = 65 + (data & 0x000F);
 			data = data >> 4;
 		}
+
+		// Double the size of the buffer if it is filled.
+		if(lim + 4 >= MAX_BUFFER){
+			cap *= 2;
+			buffer = (char *)realloc(buffer, cap);
+			if(buffer == NULL)
+				error("Memory allocation error.");
+					
+		}
 	}
 
-	// Verify if the message can be send.
-	if((i + 4) < MAX_BUFFER)
-		buffer[i] = 0;
-	else{
-		printf("Maximum buffer size reached.\n");
-		return 1;
+	// If there is a data file, then it will be added in the end of te message.
+	if(argc == 3){
+		// Marking the end of the code.
+		buffer[i] = DATAF_MARKER;
+		i++;
+
+		fData = argv[2];
+
+		fpData = fopen(fData, "r");
+		if(fpData == NULL){
+			sprintf(aux, "File %s not found.", fData);
+			error(aux);
+		}
+
+		lim = 0;
+		while(1){
+			if(EOF == fscanf(fpData, "%d\n", &data))
+				break;
+
+			// A interger generates 4 characters.
+			lim = i + 4;
+			for(i; i < lim; i++){
+				buffer[i] = 65 + (data & 0x000F);
+				data = data >> 4;
+			}
+
+			// Double the size of the buffer if it is filled.
+			if(lim + 4 >= MAX_BUFFER){
+				cap *= 2;
+				buffer = (char *)realloc(buffer, cap);
+				if(buffer == NULL)
+					error("Memory allocation error.");
+
+			}
+		}
 	}
 
-	// Sending the message.
+	buffer[i] = FINAL_MARKER;
+
+	int j;
+	for(j = 0; j <= i; j++)
+		printf("%d\n", buffer[j]);
+	printf(">%d\n", i);
+	/*----------------Sending the message------------------------------
 	sock_fd=socket(PF_NETLINK, SOCK_RAW, NETLINK_USER);
 	if(sock_fd<0)
 		return -1;
@@ -102,6 +150,15 @@ int main(int argc, char *argv[]){
 	// Read message from kernel 
 	recvmsg(sock_fd, &msg, 0);
 	printf("RESULT RECEIVED: %s\n", (char *)NLMSG_DATA(nlh));
-	close(sock_fd);
-	fclose(fp);
+	close(sock_fd);*/
+
+	if(fpData != NULL) fclose(fpData);
+	fclose(fpCode);
+	return 0;
+}
+
+void error(char *msg){
+	printf("Error: ");
+	printf("%s\n", msg);
+	exit(1);
 }
