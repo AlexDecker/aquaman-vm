@@ -32,3 +32,6 @@
 *.dSYM/
 
 *.*~
+.netlinkKernel.*
+.tmp_versions/
+user
