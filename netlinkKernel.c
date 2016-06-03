@@ -3,18 +3,14 @@
 #include <linux/skbuff.h>
 #include <linux/kernel.h>
 #include <net/sock.h>
-
-#define NETLINK_USER 31
+#include "netConst.h"
 
 struct sock *nl_sk = NULL;
 
-#define MAX_SIZE 10
-#define MEM_SIZE 1000
-#define MSG_SIZE 500
-
 //Variaveis globais
 int MEM[MEM_SIZE];
-int GPR[16];
+int FILE[FILE_SIZE];
+int GPR[REG_NUM];
 int PC;
 int SP;
 char PSW[2];
@@ -22,7 +18,7 @@ char PSW[2];
 // Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
 static void loadInstructions(char *buffer){
 	int i, j;
-	signed char final = 0;
+	int final;
 	
 	j = 0;
 	i = -1;
@@ -34,19 +30,46 @@ static void loadInstructions(char *buffer){
 			MEM[i] += buffer[(i * 4) + j] - 65;
 		}
 
-	} while(MEM[i] > -1);
+		final = buffer[(i+1) * 4];
+
+	} while(final != CODEF_MARKER);
 	/*
 	printk(KERN_INFO "Memory content:");
 	for(j = 0; j < i; j++)
 		printk(KERN_INFO "%d|", MEM[j]);
+	*/
+}
 
-	Salva as instrucoes a serem realizadas na memoria.
-	while(buffer[i] != final){
-		MEM[i] = (int)(buffer[i]) - 65;		   
-		i++;	
-	}*/
+// Carrega as informacoes do arquivo para serem utilizadas.
+static int loadFileData(char *buffer){
+	int i, j;
+	int final;
 	
-	return;
+	j = 0;
+	i = 0;
+	while(buffer[i] != CODEF_MARKER)
+		i++;
+
+	if(buffer[i+1] == '\0')
+		return 0;
+
+	do{
+		i++;
+		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
+		for(j = 3; j > -1; j--){
+			FILE[i] = FILE[i] << 4;
+			FILE[i] += buffer[(i * 4) + j] - 65;
+		}
+
+		final = buffer[(i+1) * 4];
+
+	} while(final != DATAF_MARKER);
+
+	printk(KERN_INFO "File content:");
+	for(j = 0; j < i; j++)
+		printk(KERN_INFO "%d|", FILE[j]);
+
+	return 1;
 }
 
 // Imprime o status do sistema.
@@ -415,24 +438,33 @@ static void RET(void){
 	return;
 }
 
-/*
-static void str_cat(char *str1, char *str2){
+// Inicia a maquina zerando todas as variaveis.
+static void init_machine(){
+	int i;
 
-}*/
+	for(i = 0; i < MEM_SIZE; i++)
+		MEM[i] = 0;
 
-static char* exec_machine(char *program){
+	for(i = 0; i < REG_NUM; i++)
+		GPR[i] = 0;
+
+	PC = 0;
+	SP = MEM_SIZE - 1;
+	PSW[0] = 0; PSW[1] = 0;
+}
+
+static char* exec_machine(int hasFile){
 	int simples, MP, end;
 	char mesg[MSG_SIZE];
 	
 	// Rotina de inicializacao:
+	//init_machine();
 	end = 0;
-	PC = 0;				//atoi(argv[1]);
-	SP = MEM_SIZE - 1;	//atoi(argv[2]);
 	MP = 0;				//atoi(argv[3]);
 	simples = 1;
 
 	// Carregando o programa para a memoria.
-	loadInstructions(program);
+	//loadInstructions(program);
 
 	// Executa o programa até receber uma inst. de HALT.
 	while(!end){
@@ -502,13 +534,10 @@ static char* exec_machine(char *program){
 
 // --------------------------- Main code ------------------------------
 static void aquaman_vm_recv_msg(struct sk_buff *skb) {
-
 	struct nlmsghdr *nlh;
-	int pid;
 	struct sk_buff *skb_out;
-	int msg_size;
+	int pid, msg_size, res, hasFile;
 	char *msg = "";
-	int res;
 
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
@@ -516,8 +545,15 @@ static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 	printk(KERN_INFO "Code received.");
 	pid = nlh->nlmsg_pid; /*pid of sending process */
 
-	msg = exec_machine((char*)nlmsg_data(nlh));
 
+	// ------------------Executing the code----------------------------
+	init_machine();
+	loadInstructions((char*)nlmsg_data(nlh));
+	hasFile = loadFileData((char*)nlmsg_data(nlh));
+	msg = exec_machine(hasFile);
+
+
+	// --------------------Sending the answer--------------------------
 	msg_size=strlen(msg);
 	skb_out = nlmsg_new(msg_size,0);
 

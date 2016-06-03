@@ -4,12 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
-#define NETLINK_USER 31
-#define FINAL_MARKER 110
-#define DATAF_MARKER 104
-#define MAX_BUFFER  52000
-#define MAX_PAYLOAD 52000 // maximum payload size
+#include "netConst.h"
 
 struct sockaddr_nl src_addr, dest_addr;
 struct nlmsghdr *nlh = NULL;
@@ -20,16 +15,16 @@ int sock_fd;
 void error(char *msg);
 
 int main(int argc, char *argv[]){
-	FILE *fpCode, *fpData;
+	FILE *fpCode = NULL;
+	FILE *fpData = NULL;
 	int i, lim, data, cap;
 	char *fCode, *fData, *buffer, *aux;
 	char c;
 
 	// Reading the main code file.
-	if(argc < 2){
+	if(argc < 2)
 		error("Missing the code file.");
-		return 1;
-	}
+	
 
 	fCode = argv[1];
 	fpCode = fopen(fCode, "r");
@@ -68,12 +63,12 @@ int main(int argc, char *argv[]){
 		}
 	}
 
+	buffer[i] = CODEF_MARKER;
+	i++;
+
 	// If there is a data file, then it will be added in the end of te message.
 	if(argc == 3){
 		// Marking the end of the code.
-		buffer[i] = DATAF_MARKER;
-		i++;
-
 		fData = argv[2];
 
 		fpData = fopen(fData, "r");
@@ -103,15 +98,18 @@ int main(int argc, char *argv[]){
 
 			}
 		}
+
+		buffer[i] = DATAF_MARKER;
+		i++;
 	}
 
-	buffer[i] = FINAL_MARKER;
+	buffer[i] = '\0';
 
-	int j;
-	for(j = 0; j <= i; j++)
+	/*int j;
+	for(j = 0; j < i; j++)
 		printf("%d\n", buffer[j]);
-	printf(">%d\n", i);
-	/*----------------Sending the message------------------------------
+	printf(">%d\n", i);*/
+	//----------------Sending the message------------------------------
 	sock_fd=socket(PF_NETLINK, SOCK_RAW, NETLINK_USER);
 	if(sock_fd<0)
 		return -1;
@@ -150,9 +148,10 @@ int main(int argc, char *argv[]){
 	// Read message from kernel 
 	recvmsg(sock_fd, &msg, 0);
 	printf("RESULT RECEIVED: %s\n", (char *)NLMSG_DATA(nlh));
-	close(sock_fd);*/
+	close(sock_fd);
 
-	if(fpData != NULL) fclose(fpData);
+	if(fpData != NULL) 
+		fclose(fpData);
 	fclose(fpCode);
 	return 0;
 }
