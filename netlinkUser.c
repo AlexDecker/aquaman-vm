@@ -14,6 +14,7 @@ int sock_fd;
 
 void error(char *msg);
 int decode(char *buffer);
+void loadInstructions(char *buffer);
 
 int main(int argc, char *argv[]){
 	FILE *fpCode = NULL;
@@ -106,11 +107,11 @@ int main(int argc, char *argv[]){
 	}
 
 	buffer[i] = '\0';
-
+	loadInstructions(buffer);
 	/*int j;
 	for(j = 0; j < i; j++)
 		printf("%d\n", buffer[j]);
-	printf(">%d\n", i);*/
+	printf(">%d\n", i);
 	//----------------Sending the message------------------------------
 	sock_fd=socket(PF_NETLINK, SOCK_RAW, NETLINK_USER);
 	if(sock_fd<0)
@@ -163,6 +164,7 @@ int main(int argc, char *argv[]){
 	}
 
 	close(sock_fd);
+	*/
 
 	if(fpData != NULL) 
 		fclose(fpData);
@@ -184,4 +186,27 @@ int decode(char *buffer){
 		valor += (buffer[i] - BASE) << (i*4);
 
 	return valor;
+}
+
+// Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
+void loadInstructions(char *buffer){
+	int i, j;
+	int final;
+	int MEM[MEM_SIZE];
+	
+	j = 0;
+	i = 0;
+	do{
+		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
+		MEM[i] = decode(&buffer[i*4]);
+		i++;
+		final = buffer[i * 4];
+
+	} while(final != CODEF_MARKER && final != 0);
+
+	for(j = 0; j < i; j++)
+		printf("%d\n", MEM[j]);
+
+
+	printf("PREENCHIDAS: %d\n", i);
 }

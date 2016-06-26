@@ -1,3 +1,4 @@
+#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/netlink.h>
 #include <linux/skbuff.h>
@@ -5,9 +6,10 @@
 #include <net/sock.h>
 #include "netConst.h"
 
+//MODULE_LICENSE("GPL");
+
 struct sock *nl_sk = NULL;
 
-//Variaveis globais
 int MEM[MEM_SIZE];
 int FILE[FILE_SIZE];
 int GPR[REG_NUM];
@@ -16,6 +18,11 @@ int SP;
 int FP;
 char PSW[2];
 
+static void exit(int num){
+	panic("ERRO");
+}
+
+// Codifica um inteiro em 4 chars para serem enviados.
 static void encode(char *buffer, int n){
 	int i;
 
@@ -25,6 +32,7 @@ static void encode(char *buffer, int n){
 	}
 }
 
+// Decodifica 4 chars em 1 inteiro.
 static int decode(char *buffer){
 	int valor, i;
 
@@ -35,8 +43,22 @@ static int decode(char *buffer){
 	return valor;
 }
 
+// Verifica se o PC estourou os limites da memoria.
+static void check_PC(){
+	if(PC >= MEM_SIZE){
+		printk(KERN_ERR "ERROR: MEMORY VIOLATION. (PC)\n");
+		exit(-1);
+	}
+}
+
+// Incrimenta o PC, verificando se nao estourou o limite.
+static void inc_and_check_PC(){
+	PC++;
+	check_PC();
+}
+
 // Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
-static void loadInstructions(char *buffer){
+static void loadInstructions(char *buffer, int buffer_size){
 	int i, j;
 	int final;
 	
@@ -46,9 +68,21 @@ static void loadInstructions(char *buffer){
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
 		MEM[i] = decode(&buffer[i*4]);
 		i++;
+
+		if(i*4 >= buffer_size){
+			printk(KERN_INFO "ERROR: OUT OF MESSAGE. (LOAD_INST)\n");
+			exit(-1);
+		}
+
 		final = buffer[i * 4];
 
-	} while(final != CODEF_MARKER && final != 0);
+	} while(final != CODEF_MARKER && final != 0 && i < MEM_SIZE);
+
+	if(i >= MEM_SIZE){
+		printk(KERN_ERR "ERROR: MEMORY VIOLATION. (LOAD_INST)\n");
+		exit(-1);
+	}
+
 	/*
 	printk(KERN_INFO "Memory content:");
 	for(j = 0; j < i; j++)
@@ -57,7 +91,7 @@ static void loadInstructions(char *buffer){
 }
 
 // Carrega as informacoes do arquivo para serem utilizadas.
-static int loadFileData(char *buffer){
+static int loadFileData(char *buffer, int buffer_size){
 	int i, j, k;
 	
 	j = 0;
@@ -71,10 +105,21 @@ static int loadFileData(char *buffer){
 	i++;
 	do{
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
+		if(i + 4 >= buffer_size){
+			printk(KERN_ERR "ERROR: OUT OF MESSAGE. (LOAD_FILE.)\n");
+			exit(-1);
+		}
+
 		FILE[j] = decode(&buffer[i]);
 		i += 4;
 		j++;
-	} while(buffer[i] != DATAF_MARKER);
+	} while(j < FILE_SIZE && buffer[i] != DATAF_MARKER);
+	
+	if(j >= FILE_SIZE){
+		printk(KERN_ERR "ERROR: MEMORY VIOLATION. (LOAD_FILE.)\n");
+		exit(-1);
+	}
+
 	/*
 	printk(KERN_INFO "File content:");
 	for(i = 0; i < j; i++)
@@ -102,11 +147,11 @@ static void printStatus(int opcode){
 // Carrega registrador.
 static void LOAD(void){
 	int R, M;
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R] = MEM[PC + M];
 	return;
 }
@@ -114,11 +159,11 @@ static void LOAD(void){
 // Armazena registrador.
 static void STORE(void){
 	int R, M;
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	MEM[PC + M] = GPR[R];
 	return;
 }
@@ -126,27 +171,26 @@ static void STORE(void){
 // Le valor para registrador.
 static void vm_READ(void){
 	int R;
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
 	GPR[R] = FILE[FP];
 	FP++;
-	PC++;
-	//scanf("%d", &GPR[R]);
+	inc_and_check_PC();
 	return;
 }
 
 // Escreve conteudo do registrador.
 static char* vm_WRITE(void){
 	int R;
-	char buffer[MAX_SIZE];
-	int dig[MAX_SIZE];
+	char buffer[5];
 	int i, j, value;
 
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	value = GPR[R];
 
+	// Transformando inteiro em 4 caracteres para enviar.
 	encode(buffer, value);
 	buffer[4] = '\0';
 
@@ -158,11 +202,11 @@ static char* vm_WRITE(void){
 // Copia registrador.
 static void COPY(void){
 	int R1, R2;
-	PC++;
+	inc_and_check_PC();
 	R1 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	R2 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R1] = GPR[R2];
 	// Atualização do PSW.
 	if(GPR[R1] == 0){
@@ -182,9 +226,9 @@ static void COPY(void){
 // Inverte o sinal do registrador.
 static void NEG(void){
 	int R;
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R] = -GPR[R];
 	// Atualização do PSW.
 	if(GPR[R] == 0){
@@ -204,11 +248,11 @@ static void NEG(void){
 // Subtrai dois registradores.
 static void SUB(void){
 	int R1, R2;
-	PC++;
+	inc_and_check_PC();
 	R1 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	R2 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R1] -= GPR[R2];
 	// Atualização do PSW.
 	if(GPR[R1] == 0){
@@ -228,11 +272,11 @@ static void SUB(void){
 // Soma dois registradores.
 static void ADD(void){
 	int R1, R2;
-	PC++;
+	inc_and_check_PC();
 	R1 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	R2 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R1] += GPR[R2];
 	// Atualização do PSW.
 	if(GPR[R1] == 0){
@@ -252,11 +296,11 @@ static void ADD(void){
 // AND(bit a bit) de dois registradores.
 static void AND(void){
 	int R1, R2;
-	PC++;
+	inc_and_check_PC();
 	R1 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	R2 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R1] &= GPR[R2];
 	// Atualização do PSW.
 	if(GPR[R1] == 0){
@@ -276,11 +320,11 @@ static void AND(void){
 // OR(bit a bit) de dois registradores.
 static void OR(void){
 	int R1, R2;
-	PC++;
+	inc_and_check_PC();
 	R1 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	R2 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R1] |= GPR[R2];
 	// Atualização do PSW.
 	if(GPR[R1] == 0){
@@ -300,11 +344,11 @@ static void OR(void){
 // XOR(bit a bit) de dois registradores.
 static void XOR(void){
 	int R1, R2;
-	PC++;
+	inc_and_check_PC();
 	R1 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	R2 = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R1] ^= GPR[R2];
 	// Atualização do PSW.
 	if(GPR[R1] == 0){
@@ -324,9 +368,9 @@ static void XOR(void){
 // NOT(bit a bit) de dois registradores.
 static void NOT(void){
 	int R;
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	GPR[R] = ~GPR[R];
 	// Atualização do PSW.
 	if(GPR[R] == 0){
@@ -346,64 +390,77 @@ static void NOT(void){
 // Desvio incondicional.
 static void JMP(void){
 	int M;
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	PC += M;
+	check_PC();
 	return;
 }
 
 // Desvia se zero.
 static void JZ(void){
 	int M;
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
-	if(PSW[0])
+	inc_and_check_PC();
+	if(PSW[0]){
 		PC += M;
+		check_PC();
+	}
 	return;
 }
 
 // Desvia se nao zero.
 static void JNZ(void){
 	int M;
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
-	if(!PSW[0])
+	inc_and_check_PC();
+	if(!PSW[0]){
 		PC += M;
+		check_PC();
+	}
 	return;
 }
 
 // Desvia se negativo.
 static void JN(void){
 	int M;
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
-	if(PSW[1])
+	inc_and_check_PC();
+	if(PSW[1]){
 		PC += M;
+		check_PC();
+	}
 	return;
 }
 
 // Desvia se nao negativo.
 static void JNN(void){
 	int M;
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
-	if(!PSW[1])
+	inc_and_check_PC();
+	if(!PSW[1]){
 		PC += M;
+		check_PC();
+	}
 	return;
 }
 
 // Empilha valor do registrador.
 static void PUSH(void){
 	int R;
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	SP--;
+	if(SP <= PC){
+		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (PUSH)\n");
+		exit(-1);
+	}
 	MEM[SP] = GPR[R];
 	return;
 }
@@ -411,23 +468,40 @@ static void PUSH(void){
 // Desempilha valor do registrador.
 static void POP(void){
 	int R;
-	PC++;
+	inc_and_check_PC();
 	R = MEM[PC];
-	PC++;
+	inc_and_check_PC();
+
+	if(SP <= PC || SP >= MEM_SIZE){
+		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (POP)\n");
+		exit(-1);
+	}
+
 	GPR[R] = MEM[SP];
 	SP++;
+
+	if(SP >= MEM_SIZE){
+		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (POP)\n");
+		exit(-1);
+	}
 	return;
 }
 
 // Chamada de subrotina.
 static void CALL(void){
 	int M;
-	PC++;
+	inc_and_check_PC();
 	M = MEM[PC];
-	PC++;
+	inc_and_check_PC();
 	SP--;
+	if(SP <= PC){
+		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (CALL)\n");
+		exit(-1);
+	}
+
 	MEM[SP] = PC;
 	PC += M;
+	check_PC();
 	return;
 }
 
@@ -435,6 +509,10 @@ static void CALL(void){
 static void RET(void){
 	PC = MEM[SP];
 	SP += 1;
+	if(SP >= MEM_SIZE){
+		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (RET)\n");
+		exit(-1);
+	}
 	return;
 }
 
@@ -454,7 +532,7 @@ static void init_machine(){
 	PC = 0;
 	FP = 0;
 	SP = MEM_SIZE - 1;
-	PSW[0] = 0; PSW[1] = 0;
+	PSW[0] = PSW[1] = 0;
 }
 
 static char* exec_machine(int hasFile){
@@ -557,11 +635,11 @@ static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 
 	// ------------------Executing the code----------------------------
 	init_machine();
-	loadInstructions(received);
-	hasFile = loadFileData(received);
+	loadInstructions(received, strlen(received));
+	hasFile = loadFileData(received, strlen(received));
 	msgToSend = exec_machine(hasFile);
 	if(msgToSend != NULL)
-		msg = msgToSend;
+		strncpy(msg, msgToSend, strlen(msgToSend));
 
 	printk(KERN_INFO ">%s - %d\n", msg, strlen(msg));
 	// --------------------Sending the answer--------------------------
@@ -608,5 +686,3 @@ static void __exit hello_exit(void) {
 
 module_init(hello_init); 
 module_exit(hello_exit);
-
-MODULE_LICENSE("GPL");
