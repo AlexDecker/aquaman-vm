@@ -22,6 +22,11 @@ static void exit(int num){
 	panic("ERRO");
 }
 
+static void error(char *msg){
+	printk(KERN_ERR "Error: %s\n", msg);
+	exit(1);
+}
+
 // Codifica um inteiro em 4 chars para serem enviados.
 static void encode(char *buffer, int n){
 	int i;
@@ -45,10 +50,8 @@ static int decode(char *buffer){
 
 // Verifica se o PC estourou os limites da memoria.
 static void check_PC(){
-	if(PC >= MEM_SIZE){
-		printk(KERN_ERR "ERROR: MEMORY VIOLATION. (PC)\n");
-		exit(-1);
-	}
+	if(PC >= MEM_SIZE)
+		error("MEMORY VIOLATION. (PC)");
 }
 
 // Incrimenta o PC, verificando se nao estourou o limite.
@@ -69,19 +72,15 @@ static void loadInstructions(char *buffer, int buffer_size){
 		MEM[i] = decode(&buffer[i*4]);
 		i++;
 
-		if(i*4 >= buffer_size){
-			printk(KERN_INFO "ERROR: OUT OF MESSAGE. (LOAD_INST)\n");
-			exit(-1);
-		}
+		if(i*4 >= buffer_size)
+			error("OUT OF MESSAGE. (LOAD_INST)");
 
 		final = buffer[i * 4];
 
 	} while(final != CODEF_MARKER && final != 0 && i < MEM_SIZE);
 
-	if(i >= MEM_SIZE){
-		printk(KERN_ERR "ERROR: MEMORY VIOLATION. (LOAD_INST)\n");
-		exit(-1);
-	}
+	if(i >= MEM_SIZE)
+		error("MEMORY VIOLATION. (LOAD_INST)");
 
 	/*
 	printk(KERN_INFO "Memory content:");
@@ -96,30 +95,26 @@ static int loadFileData(char *buffer, int buffer_size){
 	
 	j = 0;
 	i = 0;
-	while(buffer[i] != CODEF_MARKER && buffer[i] != 0)
+	while(i < buffer_size &&buffer[i] != CODEF_MARKER && buffer[i] != 0)
 		i++;
 
-	if(buffer[i] == '\0' || buffer[i+1] == '\0')
+	if(buffer[i] == '\0' || buffer[i+1] == '\0' || i ==buffer_size)
 		return 0;
 
 	i++;
 	do{
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
-		if(i + 4 >= buffer_size){
-			printk(KERN_ERR "ERROR: OUT OF MESSAGE. (LOAD_FILE.)\n");
-			exit(-1);
-		}
+		if(i + 4 >= buffer_size)
+			error("OUT OF MESSAGE. (LOAD_FILE)");
 
 		FILE[j] = decode(&buffer[i]);
 		i += 4;
 		j++;
 	} while(j < FILE_SIZE && buffer[i] != DATAF_MARKER);
 	
-	if(j >= FILE_SIZE){
-		printk(KERN_ERR "ERROR: MEMORY VIOLATION. (LOAD_FILE.)\n");
-		exit(-1);
-	}
-
+	if(j >= FILE_SIZE)
+		error("MEMORY VIOLATION. (LOAD_FILE)");
+	
 	/*
 	printk(KERN_INFO "File content:");
 	for(i = 0; i < j; i++)
@@ -180,9 +175,8 @@ static void vm_READ(void){
 }
 
 // Escreve conteudo do registrador.
-static char* vm_WRITE(void){
+static void vm_WRITE(char *buffer){
 	int R;
-	char buffer[5];
 	int i, j, value;
 
 	inc_and_check_PC();
@@ -195,8 +189,6 @@ static char* vm_WRITE(void){
 	buffer[4] = '\0';
 
 	printk(KERN_INFO "REG %d: %d\n", R, GPR[R]);
-
-	return buffer;
 }
 
 // Copia registrador.
@@ -457,10 +449,9 @@ static void PUSH(void){
 	R = MEM[PC];
 	inc_and_check_PC();
 	SP--;
-	if(SP <= PC){
-		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (PUSH)\n");
-		exit(-1);
-	}
+	if(SP <= PC)
+		error("INVALID STACK POSITION. (PUSH)");
+	
 	MEM[SP] = GPR[R];
 	return;
 }
@@ -472,18 +463,15 @@ static void POP(void){
 	R = MEM[PC];
 	inc_and_check_PC();
 
-	if(SP <= PC || SP >= MEM_SIZE){
-		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (POP)\n");
-		exit(-1);
-	}
+	if(SP <= PC || SP >= MEM_SIZE)
+		error(KERN_ERR "INVALID STACK POSITION. (POP)");
 
 	GPR[R] = MEM[SP];
 	SP++;
 
-	if(SP >= MEM_SIZE){
-		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (POP)\n");
-		exit(-1);
-	}
+	if(SP >= MEM_SIZE)
+		error("INVALID STACK POSITION. (POP)");
+
 	return;
 }
 
@@ -494,11 +482,9 @@ static void CALL(void){
 	M = MEM[PC];
 	inc_and_check_PC();
 	SP--;
-	if(SP <= PC){
-		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (CALL)\n");
-		exit(-1);
-	}
-
+	if(SP <= PC)
+		error("INVALID STACK POSITION. (CALL)");
+	
 	MEM[SP] = PC;
 	PC += M;
 	check_PC();
@@ -509,10 +495,9 @@ static void CALL(void){
 static void RET(void){
 	PC = MEM[SP];
 	SP += 1;
-	if(SP >= MEM_SIZE){
-		printk(KERN_ERR "ERROR: INVALID STACK POSITION. (RET)\n");
-		exit(-1);
-	}
+	if(SP >= MEM_SIZE)
+		error("INVALID STACK POSITION. (RET)");
+	
 	return;
 }
 
@@ -535,20 +520,23 @@ static void init_machine(){
 	PSW[0] = PSW[1] = 0;
 }
 
-static char* exec_machine(int hasFile){
-	int simples, MP, end;
-	char mesg[MSG_SIZE];
+static void exec_machine(int hasFile, char *mesg){
+	int simples, MP, end, i, j, inicio;
+    char value[5];
 	
 	// Rotina de inicializacao:
 	end = 0;
-	MP = 0;				//atoi(argv[3]);
+	MP = 0;				
 	simples = 1;
+    mesg[0] = '\0';
+    inicio = 0;
 
 	// Executa o programa até receber uma inst. de HALT.
 	while(!end){
 		if(PC >= MEM_SIZE){
 			printk(KERN_ERR "ERROR: INVALID MEMORY POSITION.\n");
-			return NULL;
+			mesg[0] = '\0';
+		    return;
 		}
 
 		// Caso o modo definido seja o 'verbose', imprimir status.
@@ -565,10 +553,16 @@ static char* exec_machine(int hasFile){
 						vm_READ();
 					else{
 						printk(KERN_ERR "ERROR: THERE IS NO FILE TO READ.\n");
-						return NULL;
+                        mesg[0] = '\0';
+						return;
 					}
 					break;
-			case 4:	strcat(mesg, vm_WRITE());
+			case 4:	vm_WRITE(&value); 
+                    for(j = 0; j < 4; j++)
+                        mesg[inicio + j] = value[j];
+      
+                    inicio += 4; 
+                    mesg[inicio] = '\0'; 
 					break;
 			case 5:	COPY();				
 					break;
@@ -608,14 +602,13 @@ static char* exec_machine(int hasFile){
 					break;
 			default:
 				printk(KERN_ERR "ERROR: (%d) IS AN INVALID OPCODE.\n", MEM[PC]);
-				return NULL;
-				//end = 1;
+				mesg[0] = '\0';
+			    return;
 				break;				
 		}
 	}
 	
 	printk(KERN_INFO "<%s>\n", mesg);
-	return mesg;
 }
 
 // --------------------------- Main code ------------------------------
@@ -623,8 +616,7 @@ static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 	struct nlmsghdr *nlh;
 	struct sk_buff *skb_out;
 	int pid, msg_size, res, hasFile;
-	char *received, *msgToSend;
-	char *msg = " ";
+	char *received, msg[MSG_SIZE];
 
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
@@ -637,9 +629,13 @@ static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 	init_machine();
 	loadInstructions(received, strlen(received));
 	hasFile = loadFileData(received, strlen(received));
-	msgToSend = exec_machine(hasFile);
-	if(msgToSend != NULL)
-		strncpy(msg, msgToSend, strlen(msgToSend));
+
+	exec_machine(hasFile, &msg[1]);
+    // First position is the lenght of the message to send.
+    msg[0] = BASE + strlen(&msg[1]);
+    msg[strlen(msg)] = '\0';
+
+	//strncpy(msg, msgToSend, strlen(msgToSend));
 
 	printk(KERN_INFO ">%s - %d\n", msg, strlen(msg));
 	// --------------------Sending the answer--------------------------

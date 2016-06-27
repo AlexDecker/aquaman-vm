@@ -107,8 +107,8 @@ int main(int argc, char *argv[]){
 	}
 
 	buffer[i] = '\0';
-	loadInstructions(buffer);
-	/*int j;
+	//loadInstructions(buffer);
+	int j;
 	for(j = 0; j < i; j++)
 		printf("%d\n", buffer[j]);
 	printf(">%d\n", i);
@@ -153,18 +153,20 @@ int main(int argc, char *argv[]){
 	received = (char *)NLMSG_DATA(nlh);
 	printf("RESULT RECEIVED: %s\n", (char *)NLMSG_DATA(nlh));
 
-	if(received[0] == ' ')
+    int trueResult = (received[0]- BASE) / 4;
+
+	if(received[0] == '\0')
 		printf("An error has occurred. Verify using 'dmesg'\n");
 	else{
-		i = 0;
-		while(received[i] != '\0'){
+		i = 1;
+		while(trueResult != 0){
 			printf("%d\n", decode(&received[i]));
 			i += 4;
+            trueResult--;
 		}
 	}
 
 	close(sock_fd);
-	*/
 
 	if(fpData != NULL) 
 		fclose(fpData);
@@ -209,4 +211,14 @@ void loadInstructions(char *buffer){
 
 
 	printf("PREENCHIDAS: %d\n", i);
+}
+
+// Codifica um inteiro em 4 chars para serem enviados.
+void encode(char *buffer, int n){
+	int i;
+
+	for(i = 0; i < 4; i++){
+		buffer[i] = BASE + (n & 0x000F);
+		n = n >> 4;
+	}
 }
