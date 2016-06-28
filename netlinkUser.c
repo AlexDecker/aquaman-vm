@@ -48,8 +48,16 @@ int main(int argc, char *argv[]){
 	while(1){
 		if(EOF == fscanf(fpCode, "%d\n", &data))
 			break;
-
-		// A interger generates 4 characters.
+            
+        printf("::%d\n",data);
+		// A interger generates 4 characters + 1signal.
+        if(data < 0){
+            buffer[i] = BASE+1;
+            data = -data;
+        } else{
+            buffer[i] = BASE;
+        }
+        i++;
 		lim = i + 4;
 		for(i; i < lim; i++){
 			buffer[i] = BASE + (data & 0x000F);
@@ -107,7 +115,7 @@ int main(int argc, char *argv[]){
 	}
 
 	buffer[i] = '\0';
-	//loadInstructions(buffer);
+    loadInstructions(buffer);
 	int j;
 	for(j = 0; j < i; j++)
 		printf("%d\n", buffer[j]);
@@ -166,7 +174,7 @@ int main(int argc, char *argv[]){
 		}
 	}
 
-	close(sock_fd);
+	close(sock_fd);/**/
 
 	if(fpData != NULL) 
 		fclose(fpData);
@@ -192,25 +200,30 @@ int decode(char *buffer){
 
 // Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
 void loadInstructions(char *buffer){
-	int i, j;
+	int i, j, isNeg;
+	int MEM[1000];
 	int final;
-	int MEM[MEM_SIZE];
 	
 	j = 0;
 	i = 0;
 	do{
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
-		MEM[i] = decode(&buffer[i*4]);
+		isNeg = buffer[i*5] - BASE;
+		MEM[i] = decode(&buffer[i*5+1]);
+		if(isNeg)
+			MEM[i] = -MEM[i];
+
 		i++;
-		final = buffer[i * 4];
+		final = buffer[i * 5];
 
-	} while(final != CODEF_MARKER && final != 0);
+	} while(final != CODEF_MARKER && final != 0 && i < MEM_SIZE);
 
+	//
+	printf("Memory content:\n");
 	for(j = 0; j < i; j++)
-		printf("%d\n", MEM[j]);
+		printf("[%d] ", MEM[j]);
 
-
-	printf("PREENCHIDAS: %d\n", i);
+	printf("\n");
 }
 
 // Codifica um inteiro em 4 chars para serem enviados.

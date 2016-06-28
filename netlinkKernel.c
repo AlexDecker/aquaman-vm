@@ -4,8 +4,12 @@
 #include <linux/skbuff.h>
 #include <linux/kernel.h>
 #include <net/sock.h>
+#include <linux/vmalloc.h>
 #include "netConst.h"
 
+#define PCelula struct TCelula*
+#define MAX_VETORES 16
+#define MAX_MEM 1024576
 //MODULE_LICENSE("GPL");
 
 struct sock *nl_sk = NULL;
@@ -17,6 +21,421 @@ int PC;
 int SP;
 int FP;
 char PSW[2];
+int     MSW;
+
+//------------------------------------------------------------------------------------------------------------------------------------
+typedef struct{
+    int* endReal;
+    int tamMaximo;
+}Tabela;
+
+Tabela TABELA[MAX_VETORES];
+
+unsigned char REG_VET[MAX_VETORES];//banco de registradores para guardar endereços virtuais de vetores
+
+//------------------------------------------------------------------------------------------------------------------------------------
+//valloc
+
+typedef struct TCelula{
+    int inicio;
+    int comprimento;
+    PCelula proximo;
+}TCelula;
+
+TCelula Cabeca;
+
+unsigned char Mem[MAX_MEM];
+
+void inicializa_gerencia(){
+    Cabeca.comprimento = 0;
+    Cabeca.inicio = 0;
+    Cabeca.proximo = NULL;
+}
+
+void finaliza_gerencia(){
+    while(Cabeca.proximo!=NULL)
+        vafree(&Mem[Cabeca.proximo->inicio]);
+
+}
+
+void Inserir(PCelula Anterior, int comprimento, int inicio){
+     PCelula Novo = (PCelula)vmalloc(sizeof(TCelula));
+     Novo->comprimento = comprimento;
+     Novo->inicio = inicio;
+     Novo->proximo = Anterior->proximo;
+     Anterior->proximo = Novo;
+}
+
+void Eliminar(PCelula Anterior){
+    PCelula Atual = Anterior->proximo;
+    Anterior->proximo = Atual->proximo;
+    vfree(Atual);
+}
+
+
+int Conversor(void* endereco){return((long int)endereco - (long int) &Mem[0]);}
+
+
+void imprime_status_memoria(){
+     PCelula A = Cabeca.proximo, *B = &Cabeca;
+     int i;
+
+     printk("Status agora:\n");
+
+     while(A!=NULL){
+        i = (A->inicio)-(B->inicio+B->comprimento);
+        if(i!=0)printk(KERN_ERR "Pos: %d, Size: %d, Status: FREE\n",(B->inicio+B->comprimento),i);
+        printk(KERN_ERR "Pos: %d, Size: %d, Status: USED\n", A->inicio, A->comprimento);
+        B = A;
+        A = A->proximo;
+    }
+
+     i = MAX_MEM - (B->inicio+B->comprimento);
+     if(i>0)printk(KERN_ERR "Pos: %d, Size: %d, Status: FREE\n",(B->inicio+B->comprimento),i);
+
+}
+
+
+void* valloc(size_t size){
+     if(size<=0)return NULL;
+     PCelula A = Cabeca.proximo, *B = &Cabeca;
+     while(A!=NULL){
+        if(((A->inicio)-(B->inicio+B->comprimento))>=size){
+            Inserir(B, size, (B->inicio+B->comprimento));
+            return(&Mem[(B->inicio+B->comprimento)]);
+        }
+        B = A;
+        A = A->proximo;
+        }
+
+     if(MAX_MEM - (B->inicio+B->comprimento)>=size){
+        Inserir(B, size, (B->inicio+B->comprimento));
+        return(&Mem[(B->inicio+B->comprimento)]);
+    }
+     return NULL;
+
+}
+
+void* vcalloc(size_t nitems, size_t size){
+     char* c = (char*)valloc(nitems*size);
+
+     if(c==NULL)return NULL;
+
+     int i, d = Conversor(c);
+
+     if((d<0)||(d>MAX_MEM-1))return NULL;
+
+     for(i=d; i<d+nitems*size;i++)Mem[i] = 0;
+
+     return c;
+
+}
+
+void* vrealloc(void *p, size_t size){
+      PCelula A = Cabeca.proximo, *B = &Cabeca;
+      int i = Conversor(p),j,k,l;
+
+      if(((i<0)||(i>MAX_MEM-1))&&(p!=NULL))return NULL;//Elimina ponteiros fora do MEM
+
+      char *c;
+
+      if(size==0){
+
+                  vafree(p);
+
+                  return NULL;
+
+                  }
+
+      if(p==NULL)return(vcalloc(size,1));
+
+      while((A!=NULL)&&(A->inicio!=i)){
+
+                                       B = A;
+
+                                       A = A->proximo;
+
+                                       }
+
+      if(A==NULL)return NULL;//Desnecessario, mas so por garantia
+
+      l = A->comprimento;
+
+      //Verifica se há espaço à frente do vetor original ou se o vetor está sendo diminuido
+
+      k = (A->proximo==NULL)?MAX_MEM:A->proximo->inicio;
+
+      if((size<=l)||((k-(A->inicio))>= size)){
+
+                 A->comprimento = size;
+
+                 return p;
+
+                 }
+
+      B->proximo = A->proximo;
+
+      c = (char*)vcalloc(size,1);
+
+      if(c==NULL){
+
+                  B->proximo = A;
+
+                  return NULL;
+
+                  }else{
+
+                        j = Conversor(c);
+
+                        for(k=0;k<l;k++) Mem[j+k] = Mem[i+k];
+
+                        vfree(A);
+
+                        return c;
+
+                        }
+
+}
+
+void vafree(void* endereco){
+
+    PCelula A = Cabeca.proximo, *B = &Cabeca;
+
+    int end = Conversor(endereco);
+
+    if((end<0)||(end>MAX_MEM-1))return;
+
+    while((A!=NULL)&&(A->inicio!=end)){
+
+                                       B = A;
+
+                                       A = A->proximo;
+
+                                       }
+
+    if(A!=NULL){
+
+                B->proximo = A->proximo;
+
+                vfree(A);
+
+                }
+
+}
+
+//------------------------------------------------------------------------------------------------------------------------------------
+//vet - vetor dinamico
+void inicializaTabela(){
+
+    int i;
+
+    //Deixa todas as entradas da tabela inicialmente inválidas
+
+    for(i=0;i<MAX_VETORES;i++){
+
+        TABELA[i].endReal = NULL;
+
+    }
+
+}
+
+
+
+void inicializaRegVet(){
+
+    int i;
+
+    //Deixa todas as entradas da tabela inicialmente inválidas
+
+    for(i=0;i<MAX_VETORES;i++){
+
+        REG_VET[i]=-1;
+
+    }
+
+}
+
+
+
+int insereNaTabela(int endereco, int* endReal, int tamanho){
+
+    int i;
+
+    if((endereco<0)||(endereco>=MAX_VETORES))return -1;
+
+    if(TABELA[endereco].endReal==NULL){
+
+            TABELA[endereco].endReal  = endReal;
+
+            TABELA[endereco].tamMaximo = tamanho;
+
+            return i;
+
+    }
+
+    return -1;
+
+}
+
+
+
+int retireDaTabela(int endereco){
+
+    int i;
+
+    if((endereco<0)||(endereco>=MAX_VETORES))return -1;
+
+    if(TABELA[endereco].endReal!=NULL){
+
+            TABELA[endereco].endReal = NULL;
+
+            return endereco;
+
+    }
+
+    return -1;
+
+}
+
+
+
+//Rotorna o valor do elemento de determinado index em um vetor
+
+int get(int endereco, int offset){
+
+    if((endereco<0)||(endereco>=MAX_VETORES)){
+
+        MSW = MSW|(1<<2);//terceiro bit assinalado pra indicar endereço inválido
+
+        return 0;
+
+    }
+
+    if((offset<0)||(offset>=TABELA[endereco].tamMaximo)){
+
+        MSW = MSW|(1<<3);//quarto bit assinalado pra indicar offset errado
+
+        return 0;
+
+    }
+
+    if(TABELA[endereco].endReal==NULL){
+
+        MSW = MSW|(1<<4);//quinto bit assinalado pra indicar vetor não declarado
+
+        return 0;
+
+    }
+
+    MSW = MSW & ~((1<<2)|(1<<3)|(1<<4));//terceiro, quarto e quinto bits não assinalados, ocorreu tudo bem
+
+    return *((TABELA[endereco].endReal)+offset);
+
+}
+
+
+
+//Define o valor do elemento de determinado index em um vetor
+
+void set(int endereco, int offset, int valor){
+
+    int* nAddr;
+
+
+
+    if((endereco<0)||(endereco>=MAX_VETORES)){
+
+        MSW = MSW|(1<<2);//terceiro bit assinalado pra indicar endereço inválido
+
+        return 0;
+
+    }
+
+
+
+    if(TABELA[endereco].endReal==NULL){//Se o vetor não tiver sido declarado,
+
+        nAddr = (int*) vcalloc((offset+1)*2,sizeof(int));
+
+        insereNaTabela(endereco,nAddr, (offset+1)*2);
+
+    }
+
+
+
+    if(offset<0){
+
+        MSW = MSW|(1<<3);//quarto bit assinalado pra indicar offset errado
+
+        return;
+
+    }
+
+    if(offset>=TABELA[endereco].tamMaximo){//Se tentar acessar um valor além do limite de tamanho,
+
+        TABELA[endereco].endReal=vrealloc(TABELA[endereco].endReal, sizeof(int)*(offset+1)*2);
+
+        TABELA[endereco].tamMaximo = (offset+1)*2;
+
+    }
+
+
+
+    //Posição existente no momento, realiza a atribuição
+
+    *((TABELA[endereco].endReal)+offset) = valor;
+
+}
+//------------------------------------------------------------------------------------------------------------------------------------
+//coletor de lixo
+void coletarLixo(){
+
+    unsigned char Apagar[MAX_VETORES];
+
+    int i;
+
+    for(i=0;i<MAX_VETORES;i++){
+
+        Apagar[i]=1;
+
+    }
+
+
+
+    //Verifica quais vetores estão sendo referenciados ainda
+
+    for(i=0;i<MAX_VETORES;i++){
+
+        if((REG_VET[i]>=0)||(REG_VET[i]<MAX_VETORES)){//se index válido
+
+            Apagar[REG_VET[i]] = 0;//Não apague este.
+
+        }
+
+    }
+
+
+
+    //Apaga o que estiver dangling
+
+    for(i=0;i<MAX_VETORES;i++){
+
+        if(Apagar[i]){
+
+            if(TABELA[i].endReal!=NULL){//Se já tiver sido alocado
+
+                vafree(TABELA[i].endReal);//Desaloca
+
+                retireDaTabela(i);
+
+            }
+
+        }
+
+    }
+
+}
+//------------------------------------------------------------------------------------------------------------------------------------
 
 static void exit(int num){
 	panic("ERRO");
@@ -62,31 +481,35 @@ static void inc_and_check_PC(){
 
 // Funcao responsavel por ler instrucoes de um arquivo e salva-los na memoria. 
 static void loadInstructions(char *buffer, int buffer_size){
-	int i, j;
+	int i, j, isNeg;
 	int final;
 	
 	j = 0;
 	i = 0;
 	do{
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
-		MEM[i] = decode(&buffer[i*4]);
+		isNeg = buffer[i*5] - BASE;
+		MEM[i] = decode(&buffer[i*5+1]);
+		if(isNeg)
+			MEM[i] = -MEM[i];
+
 		i++;
 
-		if(i*4 >= buffer_size)
+		if(i*4+1 >= buffer_size)
 			error("OUT OF MESSAGE. (LOAD_INST)");
 
-		final = buffer[i * 4];
+		final = buffer[i * 5];
 
 	} while(final != CODEF_MARKER && final != 0 && i < MEM_SIZE);
 
 	if(i >= MEM_SIZE)
 		error("MEMORY VIOLATION. (LOAD_INST)");
 
-	/*
+	/**/
 	printk(KERN_INFO "Memory content:");
 	for(j = 0; j < i; j++)
 		printk(KERN_INFO "%d|", MEM[j]);
-	*/
+	
 }
 
 // Carrega as informacoes do arquivo para serem utilizadas.
@@ -501,6 +924,46 @@ static void RET(void){
 	return;
 }
 
+//
+static void GET(void){
+	int address, offset, reg;
+	inc_and_check_PC();
+	address = MEM[PC];
+	inc_and_check_PC();
+	offset = MEM[PC];
+	inc_and_check_PC();
+	reg = MEM[PC];
+	inc_and_check_PC();
+
+	GPR[reg] = get(REG_VET[address], offset);
+}
+
+//
+static void SET(void){
+	int address, offset, value;
+	inc_and_check_PC();
+	address = MEM[PC];
+	inc_and_check_PC();
+	offset = MEM[PC];
+	inc_and_check_PC();
+	value = MEM[PC];
+	inc_and_check_PC();
+
+	set(REG_VET[address], offset, value);
+}
+
+//
+static void SETP(void){
+	int reg, pointer;
+	inc_and_check_PC();
+	reg = MEM[PC];
+	inc_and_check_PC();
+	pointer = MEM[PC];
+	inc_and_check_PC();
+
+	REG_VET[pointer] = GPR[reg];
+}
+
 // Inicia a maquina zerando todas as variaveis.
 static void init_machine(){
 	int i;
@@ -600,6 +1063,12 @@ static void exec_machine(int hasFile, char *mesg){
 					break;
 			case 22:end = 1;
 					break;
+			case 23:SETP();
+					break;
+            case 24:GET();
+            		break;
+            case 25:SET();
+            		break;
 			default:
 				printk(KERN_ERR "ERROR: (%d) IS AN INVALID OPCODE.\n", MEM[PC]);
 				mesg[0] = '\0';
