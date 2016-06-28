@@ -3,8 +3,9 @@
 #include <linux/netlink.h>
 #include <linux/skbuff.h>
 #include <linux/kernel.h>
-#include <net/sock.h>
 #include <linux/vmalloc.h>
+#include <linux/time.h>
+#include <net/sock.h>
 #include "netConst.h"
 
 #define PCelula struct TCelula*
@@ -505,16 +506,16 @@ static void loadInstructions(char *buffer, int buffer_size){
 	if(i >= MEM_SIZE)
 		error("MEMORY VIOLATION. (LOAD_INST)");
 
-	/**/
+	/*
 	printk(KERN_INFO "Memory content:");
 	for(j = 0; j < i; j++)
 		printk(KERN_INFO "%d|", MEM[j]);
-	
+	*/
 }
 
 // Carrega as informacoes do arquivo para serem utilizadas.
 static int loadFileData(char *buffer, int buffer_size){
-	int i, j, k;
+	int i, j, k, sign;
 	
 	j = 0;
 	i = 0;
@@ -527,10 +528,15 @@ static int loadFileData(char *buffer, int buffer_size){
 	i++;
 	do{
 		// Recuperando informacoes juntando 4 caracteres para virar um inteiro.
-		if(i + 4 >= buffer_size)
+		if(i + 5 >= buffer_size)
 			error("OUT OF MESSAGE. (LOAD_FILE)");
 
+		sign = buffer[i] - BASE;
+		i++;
 		FILE[j] = decode(&buffer[i]);
+		if(sign)
+			FILE[j] = -FILE[j];
+
 		i += 4;
 		j++;
 	} while(j < FILE_SIZE && buffer[i] != DATAF_MARKER);
@@ -541,7 +547,7 @@ static int loadFileData(char *buffer, int buffer_size){
 	/*
 	printk(KERN_INFO "File content:");
 	for(i = 0; i < j; i++)
-		printk(KERN_INFO "%d|", FILE[i]);
+		printk(KERN_INFO "<%d|", FILE[i]);
 	*/
 	return 1;
 }
@@ -920,6 +926,8 @@ static void RET(void){
 	SP += 1;
 	if(SP >= MEM_SIZE)
 		error("INVALID STACK POSITION. (RET)");
+
+
 	
 	return;
 }
@@ -1060,6 +1068,7 @@ static void exec_machine(int hasFile, char *mesg){
 			case 20:CALL();
 					break;
 			case 21:RET();
+					coletarLixo();
 					break;
 			case 22:end = 1;
 					break;
@@ -1086,6 +1095,7 @@ static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 	struct sk_buff *skb_out;
 	int pid, msg_size, res, hasFile;
 	char *received, msg[MSG_SIZE];
+	struct timespec it, ft;
 
 	printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
@@ -1099,7 +1109,12 @@ static void aquaman_vm_recv_msg(struct sk_buff *skb) {
 	loadInstructions(received, strlen(received));
 	hasFile = loadFileData(received, strlen(received));
 
+	getnstimeofday(&it);
 	exec_machine(hasFile, &msg[1]);
+	getnstimeofday(&ft);
+
+	printk(KERN_INFO "Execution time: %ld ns\n", ((ft.tv_sec - it.tv_sec)*1000000000) + ft.tv_nsec - it.tv_nsec);
+
     // First position is the lenght of the message to send.
     msg[0] = BASE + strlen(&msg[1]);
     msg[strlen(msg)] = '\0';

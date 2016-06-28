@@ -93,7 +93,16 @@ int main(int argc, char *argv[]){
 			if(EOF == fscanf(fpData, "%d\n", &data))
 				break;
 
-			// A interger generates 4 characters.
+			printf("<:%d\n",data);
+			// A interger generates 4 characters + 1signal.
+	        if(data < 0){
+	            buffer[i] = BASE+1;
+	            data = -data;
+	        } else{
+	            buffer[i] = BASE;
+	        }
+	        
+	        i++;
 			lim = i + 4;
 			for(i; i < lim; i++){
 				buffer[i] = BASE + (data & 0x000F);

@@ -9,6 +9,6 @@
 #define BASE		  65
 
 #define MAX_SIZE    10
-#define MEM_SIZE  1000
+#define MEM_SIZE 10000
 #define MSG_SIZE   500
 #define FILE_SIZE  500
